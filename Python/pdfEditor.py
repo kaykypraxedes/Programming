@@ -1,3 +1,26 @@
+# - Desenvolvedor:
+#     Kayky Moreira Praxedes
+#
+# - Resumo do projeto:
+#     Construção de uma aplicação para separação e mesclagem de PDFs, bem como
+#     a transformação de imagens em arquivos PDF.
+#
+#     A separação cria um arquivo PDF com a cópia das páginas selecionadas,
+#     permitindo inclusive criação de múltiplos arquivos de uma vez.
+#
+#     A mesclagem junta todos os arquivos enviados pelo terminal, pela ordem de 
+#     envio, em apenas um arquivo PDF. Arquivos como imagens podem ser mesclados
+#     também, a imagem sendo adicionada em uma folha cujas dimensões são
+#     definidas pelo primeiro arquivo PDF (se forem apenas imagens a dimensão 
+#     será de uma folha A4).
+#
+#     A conversão de imagem para PDF pode ocorrer de duas maneiras, a depender 
+#     da intenção do usuário:
+#         1) A imagem é convertida integralmente em PDF, mantendo as suas 
+#            dimensões.
+#         2) A imagem é adicionada em uma folha A4 e centralizada, alterando suas 
+#            dimensões (mantendo a proporcionalidade).
+
 import os
 import shlex
 import re
@@ -31,11 +54,11 @@ def redimensionaImagem(imagem, larguraMax, alturaMax):
     return imagem.resize((novaLargura, novaAltura), Image.LANCZOS)
 
 # Coloca uma imagem no centro de uma folha branca
-def imagemFolha(imagem, arquivos): 
+def imagemFolha(imagem, arquivos=None): 
     # (Image, str[]) -> (Image)
-    margem = 14 # Aproximadamente 0.5 cm
-    larguraPag = 595 # Padrão para folha A4
-    alturaPag = 842
+    margem = 14 # Aproximadamente 0.5cm
+    larguraPag = 595 # Padrão para folha A4 (21cm)
+    alturaPag = 842 # (29cm)
     # As imagens são redimensionadas com base no primeiro PDF da lista
     if arquivos is not None:
         pagina=None
@@ -45,7 +68,8 @@ def imagemFolha(imagem, arquivos):
                 leitor = PdfReader(arquivo)
                 pagina = leitor.pages[0]
                 break
-        larguraPag, alturaPag = pagina.mediabox.width, pagina.mediabox.height
+        if pagina is not None:
+            larguraPag, alturaPag = pagina.mediabox.width, pagina.mediabox.height
     # Cria uma página do tamanho do padrão para insetir a imagem redimensionada
     paginaBranca = Image.new("RGB", (int(larguraPag), int(alturaPag)), (255, 255, 255))
     maxLargura = larguraPag - 2 * margem
