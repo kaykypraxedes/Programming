@@ -81,6 +81,13 @@ def imagemFolha(imagem, arquivos=None):
     paginaBranca.paste(imagem, (posicaoX, posicaoY))
     return paginaBranca
 
+def removerTransparencia(img):
+    if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+        fundo = Image.new("RGB", img.size, (255,255,255))
+        fundo.paste(img, mask=img.convert("RGBA").split()[3])
+        return fundo
+    return img.convert("RGB")
+
 # FUNÇÕES DO PROGRAMA
 # Função para dividir o pdf
 def extrairPdf(paginaInicial, paginaFinal, arquivoEntrada):
@@ -154,11 +161,11 @@ def imagemParaPdf(tipoConversao, arquivoImagem, arquivoSaida=None, arquivos=None
             arquivoSaida = nome + ".pdf" # Muda a extensão para .pdf
             # (str) -> (str)
             arquivoSaida = verificaNome(arquivoSaida)
-        imagem = Image.open(arquivoImagem)
-        if (tipoConversao == 1): # Conversão do arquivo diretamente
-            if imagem.mode != "RGB":
-                imagem = imagem.convert("RGB")
-        else: # Coloca a imagem em um PDF A4 branco
+        # Elemento para operação com PDF (escrita)
+        escritor = PdfWriter()
+        imagem = Image.open(arquivoImagem).convert("RGBA")
+        imagem = removerTransparencia(imagem)
+        if (tipoConversao == 2): # Coloca a imagem em um PDF A4 branco
             # (Image, str[]) -> (Image)
             imagem = imagemFolha(imagem, arquivos)
         imagem.save(arquivoSaida, "PDF")
