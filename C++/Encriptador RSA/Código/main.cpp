@@ -7,21 +7,21 @@ Desenvolvedor:
 #include "headers/fatora.h"
 #include "headers/primos.h"
 #include "headers/cripto.h"
-
 void imprimeFatoracao(){
     std::cout << "\n====================== Fatoração ======================\n\n";
     unsigned long long int valor{};
     std::cout << "Insira o valor a ser fatorado: ";
     std::cin >> valor;
     FATOR tempoEprimos{fatora(valor)};
-    std::cout << tempoEprimos.num2 << " primo(s) calculado(s) em " << ajustaEscala(tempoEprimos.num1) << "\n\n";
+    std::cout << stringFatores(valor) << "\n\n" << tempoEprimos.num2 << " primo(s) calculado(s) em " << ajustaEscala(tempoEprimos.num1) << "\n\n";
 }
 void imprimeMinPrimo(){
     std::cout << "\n================== Cálculo do primo ===================\n\n";
     int valor{};
     std::cout << "Insira o número de dígitos do primo: ";
     std::cin >> valor;
-    std::cout << "O menor primo com " << valor << " dígito(s) é " << primoMin(valor) << "\n\n";
+    if(valor > 0) std::cout << "O menor primo com " << valor << " dígito(s) é " << primoMin(valor) << "\n\n";
+    else std::cout << "Valor inválido! Não existem números com 0 dígitos!\n\n";
 }
 void criptografia(){
     std::cout << "\n================== Criptografia RSA ===================\n\n";

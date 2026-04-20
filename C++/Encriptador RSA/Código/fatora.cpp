@@ -2,7 +2,8 @@
 #include "headers/fatora.h"
 // Elementos privados
 static std::vector<FATOR> fatores{};
-static std::string stringFatores(const unsigned long long int &valor){
+// Elementos públicos
+std::string stringFatores(const unsigned long long int &valor){
     std::string numeroFatorado{std::to_string(valor) + " = "};
     for(FATOR fator : fatores){
         std::string pot{fator.num2 != 1 ? ("^" + std::to_string(fator.num2)) : ""};
@@ -14,11 +15,9 @@ static std::string stringFatores(const unsigned long long int &valor){
     fatores.clear();
     return numeroFatorado;
 }
-// Elementos públicos
 FATOR fatora(const unsigned long long int &valor){
     if(valor == 0){
         fatores.push_back({0,1});
-        std::cout << stringFatores(valor) << "\n\n";
         return FATOR{0,0};
     }
     unsigned long long int copyValor{valor};
@@ -33,7 +32,6 @@ FATOR fatora(const unsigned long long int &valor){
         }
     } // primo || numero composto com um fator maior do que sqrt(n)
     if(fatores.empty() || copyValor != 1) fatores.push_back({copyValor, 1});
-    std::cout << stringFatores(valor) << "\n\n";
     clearPrimos();
     return Output;
 }
