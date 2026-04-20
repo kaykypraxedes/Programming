@@ -1,0 +1,27 @@
+Construtor de uma B-Tree de grau t, com funções para inserir, remover e buscar chaves.
+     
+O projeto, além de se utilizar dos princípios da Programação Orientada a Objetos, implementa um algoritmo de ordenação e pesquisa de alta complexidade, mas de grande utilidade.
+
+Nenhum elemento da árvore fica com mais do que 2t - 1, ou com menos do que t - 1 chaves em nenhum momento, de modo que a árvore é sempre reorganizada antes, em caso de uma inserção ou de uma remoção que geraria um estado ilegal.
+
+A inserção é sempre realizada em uma folha, de modo a abrager 2 casos principais: 
+1) O nó possui é menos que 2t - 1 chaves: 
+A chave é inserida sem alterações na estrutura da árvore.
+
+2) O nó possui 2t - 1 chaves (limite): 
+Antes da inserção, são realizadas divisões dos nós de maneira recursiva até que inserção se torne legal.
+     
+Na remoção, os casos são:
+1) Remoção na folha:
+    a- Nó com mais de t - 1 chaves: 
+A chave é retirada
+    b- Nó tem t - 1 chaves, mas algum irmão tem mais: 
+A chave pai passa para o nó filho e o sucessor ou o antecessor dele no nó irmão vai para seu lugar, depois a chave é removida.
+    c- Nó e os irmãos tem t - 1 chaves: 
+Antes da remoção, são realizadas funsões recursivas do com a chave nó com o nó pai e com um irmão.
+
+2) Remoção em um nó interno:
+    a- Um dos filhos tem mais de t - 1 chaves: 
+O antecessor ou sucessor da chave vai para o seu lugar, e depois ela é removida.
+    b- Ambos os filhos t - 1 chaves: 
+São realizadas fusões recursivas chave se funde com o da chave com filho direito e esquerdo, e, posteriormente, a chave é eliminada.

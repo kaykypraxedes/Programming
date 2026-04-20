@@ -1,0 +1,3 @@
+O programa recebe uma mensagem inicial que pode ser aplicada ser codificada/decodificada para um valor de cifra específico ou então um teste de todas as combinações através de brute-force.
+
+O código diferencia caracteres maiúsculos e minúsculos (aplicando a cifra à eles, mantendo essa característica) e os demais caracteres se mantém da mesma maneira.

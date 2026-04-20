@@ -1,0 +1,5 @@
+Biblioteca com um menu interativo para o usuário. 
+    
+A biblioteca permite cadastrar novos autores e obras, bem como a pesquisa de obras gerais, específicas e de textos semelhantes caso a a obra buscada não esteja cadastrada.
+
+O projeto segue os princípios da Programação Orientada a Objetos, com separação dos módulos em packages com suas devidas responsabilidades.

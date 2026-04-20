@@ -1,0 +1,3 @@
+Programa que permite fatorar de maneira eficiente números, bem como calcular primos específicos com uma quantidade pré-determinada de dígitos (ambos os métodos utilizando uma implementação do crivo de Eratóstenes).
+
+A outra funcionalidade é a de realizar a codificação e decodificação de uma mensagem utilizado o modelo de criptografia RSA, aplicando conhecimentos práticos acerca de tópicos de teoria dos números, como primalidade, expressões modulares, teoremas de Euler e Fermat, etc.

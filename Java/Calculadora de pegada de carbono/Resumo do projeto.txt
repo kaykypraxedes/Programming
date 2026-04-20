@@ -1,0 +1,6 @@
+Calculadora de pegada de carbono de diversos elementos. 
+    
+O objetivo principal do projeto era, além de fazer o cálculo da pegada de carbono de diversos elementos dadas certas variáveis, mostrar domínio de herança e recursos 
+de exceção, mostrando o funcionamento do código apesar de uma ação inválida. 
+
+O projeto segue os princípios da Programação Orientada a Objetos, com separação dos módulos em packages com suas devidas responsabilidades.
