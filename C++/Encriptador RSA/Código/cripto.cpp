@@ -10,19 +10,32 @@ static void printBlocos(std::vector<unsigned long long int> blocos){
 }
 // Elementos privados
 // Uso comum:
-// Multiplicação binária
+// Multiplicação binária (mantém um valor máximo de bits, pois, para as operações modulares, não é necessário o valor completo)
 static unsigned long long int modMul(unsigned long long int a, unsigned long long int b, const unsigned long long int mod) {
-    // Exemplo para ilustrar a lógica: 10 decimal = 1010 binário. Dessa maneira, 10 * 10 vira 1010 * 1010 = (1010 * 0) + (10100 * 1) + (101000 * 0) + (1010000 * 1) = 1100100
-    return (__uint128_t)a * b % mod;
+    /* Exemplo para ilustrar a lógica em 6 bits (resultado completo teria 7 bits):
+       10 == 001010b => 10 * 10 = 001010b * 001010b = (001010b * 0b) + (010100b * 1b) + (101000b * 0b) + (010000b * 1b) = 010100b + 010000b = 100100b */
+    unsigned long long int result{};
+    a %= mod;
+    while (b > 0) {
+        if (b & 1) {
+            if (result >= mod - a) result -= mod; // Previne o overflow do resultado (em relação à mod)
+            result += a; // 2^0 * b[0] + 2^1 * b[1] + 2^2 * b[2] + ...
+        }
+        if (a >= mod - a) a -= (mod - a); // Previne o overflow de a (em relação à mod)
+        else a += a; // a = 2 * a
+        b >>= 1; // Shift para o próximo bit de b
+    }
+    return result;
 } // Exponenciação binária (preserva os bits menores do que n a cada operação, tornando o processo mais eficiente e sem perdas)
 static unsigned long long int modPow(const unsigned long long int base, unsigned long long int exp, const unsigned long long int mod) {
-    // Exemplo para ilustrar a lógica: 10 decimal = 1010 binário. 10^5 vira 1010^101 = 1010^1 * 1010^0 * 1010^100 = 1010 * (1010 * 1010 * 1010 * 1010)
+    /* Exemplo para ilustrar a lógica em 6 bits (resultado completo teria 17 bits):
+       10 == 001010b => 10^5 = 001010b^101b = 001010b^1b * 001010b^0b * 001010b^100b = 001010b * (001010b * 001010b * 001010b * 001010b) = 001010b * 010000b = 100000b */
     unsigned long long int result{1};
-    unsigned long long int b{base % mod};
+    unsigned long long int b{base};
     while (exp > 0) {
-        if (exp & 1) // Se o bit menos significativo for 1
-            result = modMul(result, b, mod);
-        b = modMul(b, b, mod); // Quadrado da base
+        if (exp & 1)
+            result = modMul(result, b, mod); // Multiplicação do resultado até agora pela potência da base
+        b = modMul(b, b, mod); // Eleva a base atual ao quadrado (b -> b^2 -> b^4 -> b^16 -> ...)
         exp >>= 1; // Shift no expoente
     }
     return result;
@@ -41,6 +54,31 @@ static std::string charToNum(const std::string &strInput, bool reverse){
     strOutput.push_back('\0');
     return strOutput;
 } // Codificação:
+// Calcula o valor de d, tal que: (e * d) % phi == 1
+static unsigned long long int modInverse(unsigned long long int e, unsigned long long int phi) {
+    // Algoritmo de Euclides Estendido:
+    // Invariante: r0 = t0*phi + ?*e e r1 = t1*phi + ?*e (não rastreamos o coeficiente de e)
+    // Ao final, r0 == mdc(e, phi). Se r0 == 1, então t0*phi + ?*e == 1
+    // Logo ?*e ≡ 1 (mod phi), ou seja, ? == e^-1 (mod phi)
+    unsigned long long int r0{phi}, r1{e};
+    unsigned long long int t0{0},  t1{1};
+    while (r1 != 0) {
+        unsigned long long int q{r0 / r1};
+        // Atualiza o resto: r0, r1 = r1, r0 - q*r1 (passo do Euclides)
+        unsigned long long int tmp{r1};
+        r1 = r0 - q * r1;
+        r0 = tmp;
+        // Atualiza o coeficiente: t2 = t0 - q*t1
+        // Como t pode ser negativo no algoritmo original, trabalhamos mod phi:
+        // t0 - q*t1 (mod phi) == t0 + phi - (q*t1 % phi) (mod phi), sempre positivo
+        tmp = t1;
+        t1 = t0 + phi - modMul(q, t1, phi); // modMul evita overflow de q*t1
+        if (t1 >= phi) t1 -= phi;           // Reduz se a soma ultrapassou phi
+        t0 = tmp;
+    }
+    if (r0 != 1) return 0; // mdc(e, phi) != 1: inverso não existe
+    return t0;             // t0 é o inverso modular de e em relação a phi
+}
 // Converte a string de números em blocos
 static std::vector<unsigned long long int> numToBloco(const std::string &mensagem, const unsigned long long int &n){
     std::vector<unsigned long long int> blocos{};
@@ -104,22 +142,6 @@ bool testaChaves(unsigned long long int &p, unsigned long long int &q, unsigned 
     // Teste de validade das chaves
     if((((p - 1) * (q - 1) % e) == 0) || (p == q)) return false;
     return true;
-}
-static unsigned long long int modInverse(unsigned long long int e, unsigned long long int phi) {
-    __int128 t = 0, newt = 1;
-    __int128 r = phi, newr = e;
-    while (newr != 0) {
-        __int128 quotient = r / newr;
-        __int128 tmp = newt;
-        newt = t - quotient * newt;
-        t = tmp;
-        tmp = newr;
-        newr = r - quotient * newr;
-        r = tmp;
-    }
-    if (r > 1) return -1;
-    if (t < 0) t += phi;
-    return static_cast<unsigned long long int>(t);
 }
 std::string getChaves(unsigned long long int &p, unsigned long long int &q, unsigned long long int &e){
     unsigned long long limiteULL = -1;
