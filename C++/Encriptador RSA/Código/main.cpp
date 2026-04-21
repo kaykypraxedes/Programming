@@ -24,33 +24,32 @@ void imprimeMinPrimo(){
     else std::cout << "Valor inválido! Não existem números com 0 dígitos!\n\n";
 }
 void criptografia(){
-    std::cout << "\n================== Criptografia RSA ===================\n\n";
+    std::cout << "\n=================== Criptografia RSA ==================\n\n";
     short int opcao{};
     while(true){
         unsigned long long int p{}, q{}, e{}, n{}, d{};
         std::string mensagem{};
-        std::cout << "1) Verificar um conjunto de chaves\n2) Codificar uma mensagem\n"
-        << "3) Decodificar uma mensagem\n0) Encerrar\nOpção: ";
+        std::cout << "1) Verificar um conjunto de chaves\n2) Codificar uma mensagem\n3) Decodificar uma mensagem\n0) Encerrar\nOpção: ";
         std::cin >> opcao;
         switch (opcao){
         case 1:
-            std::cout << "\nModelo de Input: p q e\n\nInsira as chaves: ";
+            std::cout << "\nInsira as chaves (p q e): ";
             std::cin >> p >> q >> e;
             std::cout << getChaves(p, q, e) << "\n\n";
             break;
         case 2:
-            std::cout << "\nModelo de Input: n e\n\nInsira as chaves para codificação: ";
+            std::cout << "\nInsira as chaves para codificação (n e): ";
             std::cin >> n >> e;
             std::cin.ignore(); // Limpa o buffer
-            std::cout << "\nInsira a mensagem: ";
+            std::cout << "Insira a mensagem: ";
             std::getline(std::cin, mensagem);
             std::cout << "Mensagem codificada: " << codificacao(mensagem, n, e) << "\n\n";
             break;
         case 3:
-            std::cout << "\nModelo de Input: n d\n\nInsira as chaves para decodificação: ";
+            std::cout << "\nInsira as chaves para decodificação (n d): ";
             std::cin >> n >> d;
             std::cin.ignore(); // Limpa o buffer
-            std::cout << "\nInsira a mensagem: ";
+            std::cout << "Insira a mensagem: ";
             std::getline(std::cin, mensagem);
             std::cout << "Mensagem decodificada: " << decodificacao(mensagem, n, d) << "\n\n";
             break;
@@ -64,8 +63,8 @@ int main(){
     // Menu
     short int opcao{};
     while(true){
-        std::cout << "1) Fatorar\n2) Menor primo com n dígitos\n"
-        "3) Codificar e decodificar uma mensagem usando RSA\n0) Encerrar\nOpção: ";
+        std::cout << "\n~~~~~~~~~~~~~~~~~~~ Menu principal ~~~~~~~~~~~~~~~~~~~~\n\n";
+        std::cout << "1) Fatorar um número\n2) Calcular o menor primo com n dígitos\n3) Codificar e decodificar uma mensagem usando RSA\n0) Encerrar\nOpção: ";
         std::cin >> opcao;
         switch (opcao){
         case 1:

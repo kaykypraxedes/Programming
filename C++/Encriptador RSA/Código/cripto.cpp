@@ -1,13 +1,5 @@
 /* cripto.cpp */
 #include "headers/cripto.h"
-#include <string>
-#include <iostream>
-#include <vector>
-// Debugging
-static void printBlocos(std::vector<unsigned long long int> blocos){
-    for(unsigned long long int bloco : blocos) std::cout << bloco << ' ';
-    std::cout << std::endl;
-}
 // Elementos privados
 // Uso comum:
 // Multiplicação binária (mantém um valor máximo de bits, pois, para as operações modulares, não é necessário o valor completo)
@@ -54,32 +46,35 @@ static std::string charToNum(const std::string &strInput, bool reverse){
     strOutput.push_back('\0');
     return strOutput;
 } // Codificação:
-// Calcula o valor de d, tal que: (e * d) % phi == 1
-static unsigned long long int modInverse(unsigned long long int e, unsigned long long int phi) {
-    // Algoritmo de Euclides Estendido:
-    // Invariante: r0 = t0*phi + ?*e e r1 = t1*phi + ?*e (não rastreamos o coeficiente de e)
-    // Ao final, r0 == mdc(e, phi). Se r0 == 1, então t0*phi + ?*e == 1
-    // Logo ?*e ≡ 1 (mod phi), ou seja, ? == e^-1 (mod phi)
-    unsigned long long int r0{phi}, r1{e};
-    unsigned long long int t0{0},  t1{1};
-    while (r1 != 0) {
-        unsigned long long int q{r0 / r1};
-        // Atualiza o resto: r0, r1 = r1, r0 - q*r1 (passo do Euclides)
-        unsigned long long int tmp{r1};
-        r1 = r0 - q * r1;
-        r0 = tmp;
-        // Atualiza o coeficiente: t2 = t0 - q*t1
-        // Como t pode ser negativo no algoritmo original, trabalhamos mod phi:
-        // t0 - q*t1 (mod phi) == t0 + phi - (q*t1 % phi) (mod phi), sempre positivo
-        tmp = t1;
-        t1 = t0 + phi - modMul(q, t1, phi); // modMul evita overflow de q*t1
-        if (t1 >= phi) t1 -= phi;           // Reduz se a soma ultrapassou phi
-        t0 = tmp;
+// Calcula o valor de d, tal que: e * d ≡ 1 (mod phi)
+static unsigned long long int modInverse(const unsigned long long int &e, const unsigned long long int &phi) {
+    /* 1) Pela definição: e * d ≡ 1 (mod phi) => e * d = 1 + k * phi => e * d - k * phi = 1
+          Definindo a = -k: d * e + a * phi = 1
+       2) É possivel transformar essa expressão em uma representação genérica: t0 * e + t1 * phi = r.
+          Os valores básicos obtidos dessa relação são:
+          - Para t0 = 1 e t1 = 0: r0 = t0 * phi + t1 * e = 1 * phi + 0 * e = phi
+          - Para t0 = 0 e t1 = 1: r1 = t0 * phi + t1 * e = 0 * phi + 1 * e = e
+       3) Através de combinações lineares, é possível obter valores menores de resto, até onde rn = 1 (caso esperado):
+          q1 = ⌊r0/r1⌋
+          - r2 = r0 - q1 * r1 = phi - q1 * (t0 * phi + t1 * e) = (1 - q1 * t0) * phi - (q1 * t1) * e (achar restos menores até rn = 1)
+          - t2 = t0 - q1 * t1 = -q1 * t1 (achar o valor que multiplica e)
+          q2 = ⌊r1/r2⌋
+          - r3 = r1 - q2 * r2 = t0 * phi + t1 * e - q2 * ((1 - q1 * t0) * phi - (q1 * t1) * e) = a1 * phi + (q2 * q1 * t1 + t1) * e
+          - t3 = t1 - q2 * t2 = t1 - q2 * (-q1 * t1)  = q2 * q1 * t1 + t1
+          ...
+          rn = 1 = r(n-2) - q(n-1) * r(n-1) = a * phi + d * e
+          tn = t(n-2) - q(n-1) * t(n-1) = d */
+    unsigned long long int r0{phi}, r1{e}, t0{0}, t1{1};
+    for(; r1 != 1; ) {
+        unsigned long long q{r0/r1}, r2{r0 - q * r1}, t2{t0 - q * t1};
+        r0 = r1;
+        t0 = t1;
+        r1 = r2;
+        t1 = t2;
     }
-    if (r0 != 1) return 0; // mdc(e, phi) != 1: inverso não existe
-    return t0;             // t0 é o inverso modular de e em relação a phi
-}
-// Converte a string de números em blocos
+    if(t1 > phi) t1 += phi; // overflow
+    return t1;
+} // Converte a string de números em blocos
 static std::vector<unsigned long long int> numToBloco(const std::string &mensagem, const unsigned long long int &n){
     std::vector<unsigned long long int> blocos{};
     std::string aux{};
@@ -148,11 +143,11 @@ std::string getChaves(unsigned long long int &p, unsigned long long int &q, unsi
     if(p > limiteULL / q)
         return "Conjunto de chaves inválido! n >= 2^64 (limite do unsigned long long int)";
     if(((p - 1) * (q - 1) % e) == 0)
-        return "Conjunto de chaves inválido! (p - 1) * (q - 1) % e) == 0";
+        return "Conjunto de chaves inválido! ((p - 1) * (q - 1)) % e == 0";
     if(p == q) return "Conjunto de chaves inválido! p == q";
     // Calcula o valor do inverso modular de e para (p - 1) * (q - 1)
     unsigned long long int fi{(p - 1) * (q - 1)}, d{modInverse(e, fi)};
-    std::string Output{"Chaves públicas (n, e): " +  std::to_string(p * q) + " " + std::to_string(e) + "\nChaves privadas (n, d): " + std::to_string(p * q) + " " + std::to_string(d)};
+    std::string Output{"Chaves públicas (n e): " +  std::to_string(p * q) + " " + std::to_string(e) + "\nChaves privadas (n d): " + std::to_string(p * q) + " " + std::to_string(d)};
     return Output;
 }
 std::string codificacao(const std::string &mensagem, unsigned long long int &n, unsigned long long int &e){
