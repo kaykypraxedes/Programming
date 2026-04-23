@@ -2,8 +2,8 @@ Construção de uma aplicação para separação e mesclagem de PDFs, bem como a
 
 A separação cria um arquivo PDF com a cópia das páginas selecionadas, permitindo inclusive criação de múltiplos arquivos de uma vez.
 
-A mesclagem junta todos os arquivos enviados pelo terminal, pela ordem de envio, em apenas um arquivo PDF. Arquivos como imagens podem ser mesclados também, a imagem sendo adicionada em uma folha cujas dimensões são definidas pelo primeiro arquivo PDF (se forem apenas imagens a dimensão será de uma folha A4).
+A mesclagem junta todos os arquivos enviados pelo terminal, pela ordem de envio, em apenas um arquivo PDF. Arquivos como imagens podem ser mesclados também, a imagem sendo redimensionadas em relação à página imediantamente à frente dela (medidas extras são tomadas para evitar bugs).
 
 A conversão de imagem para PDF pode ocorrer de duas maneiras, a depender da intenção do usuário:
 1) A imagem é convertida integralmente em PDF, mantendo as suas dimensões.
-2) A imagem é adicionada em uma folha A4 e centralizada, alterando suas dimensões (mantendo a proporcionalidade).
+2) A imagem redimensionada levando em conta a largura de uma folha A4 (mas mantendo seu formato original).
