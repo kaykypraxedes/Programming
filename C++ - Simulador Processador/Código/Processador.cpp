@@ -15,11 +15,12 @@ Processador::Processador(int                      num_threads,
                          std::vector<int>         num_ufs,
                          std::vector<int>         instrucoes_troca)
     : largura_de_despacho(largura_de_despacho),
-    tem_previsor         (tem_previsor),
+      tem_previsor       (tem_previsor),
       tipo               (tipo),
       modelo_MT          (modelo)
 {
     bool tem_rob{tipo == TipoProcessador::TOMASULO_COM_ROB};
+    num_ufs.push_back(largura_de_despacho);
     if (instrucoes_troca.empty()) iniciarThreads(Assembly, tem_rob, num_threads, num_rs, num_ufs);
     else                          iniciarThreads(Assembly, tem_rob, num_threads, num_rs, num_ufs, instrucoes_troca);
 }
@@ -35,6 +36,7 @@ Thread Processador::getThread(int i) const{
 // ─── executarCiclo ────────────────────────────────────────────────────────────
 bool Processador::executarCiclo() {
     if(executarExMemWr()) return true;
+    // Reservation Stations são liberadas no mesmo ciclo em que a instrução deixa a estação, podendo ser reutilizadas imediatamente por novas instruções emitidas no mesmo ciclo
     executarIssue();
     ciclo_atual++;
     return false;
@@ -49,8 +51,10 @@ std::vector<LinhaTabela> Processador::getTabelaThread(int i) const {
 bool Processador::executarExMemWr() {
     bool executou_todos{true};
     for (Thread& t : threads) {
-        executou_todos &= t.executarExMem(ciclo_atual);
+        bool exmem_done = t.executarExMem(ciclo_atual);
         t.executarWr(ciclo_atual);
+        t.executarCommitPublico(ciclo_atual); // commit após WR: ciclo_WR já preenchido
+        executou_todos &= exmem_done;
     }
     return executou_todos;
 }

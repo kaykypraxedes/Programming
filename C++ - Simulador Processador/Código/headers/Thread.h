@@ -19,9 +19,9 @@ struct LinhaTabela{
     Instrucao                instrucao;
     int                      posicao_PC{-1};
     int                      ciclo_issue{-1};
-    std::vector<int>         ciclo_EX;  // Operação multiciclos (recebe ciclo de início e o ciclo de encerramento)
-    std::vector<int>         ciclo_MEM; // Operação multiciclos
-    int                      ciclo_WR{-1};  // Exclusivo do Tomasulo com especulação (ROB)
+    std::vector<int>         ciclo_EX;
+    std::vector<int>         ciclo_MEM;
+    int                      ciclo_WR{-1};
     int                      ciclo_commit{-1};
 };
 
@@ -29,8 +29,8 @@ struct LinhaTabela{
 class Thread {
 public:
     // Construtores
-    Thread(std::vector<std::string>, bool, std::vector<int> = {}, std::vector<int> = {}); // Thread com granulação fina ou SMT
-    Thread(std::vector<int>, std::vector<std::string>, bool, std::vector<int> = {}, std::vector<int> = {}); // Thread com granulação grossa
+    Thread(std::vector<std::string>, bool, std::vector<int> = {}, std::vector<int> = {});
+    Thread(std::vector<int>, std::vector<std::string>, bool, std::vector<int> = {}, std::vector<int> = {});
     // Getters
     int                      getPC() const;
     int                      getNumStalls() const;
@@ -42,6 +42,7 @@ public:
     // Métodos públicos
     bool                     executarExMem(int);
     void                     executarWr(int);
+    void                     executarCommitPublico(int);
     bool                     executarIssue(int);
     void                     definirLatenciaEspecifica(int, int, int=0);
 private:
@@ -53,13 +54,14 @@ private:
     int                      num_instrucoes_finalizadas{};
     int                      num_instrucoes_commitadas{};
     int                      num_stalls{};
-    int                      ponteiro_commit{}; // ROB que age na tabela de instruções
-    int                      pc_branch_nao_resolvido{-1}; // >= 0 enquanto branch sem ROB não começou EX
+    int                      ponteiro_commit{};
+    int                      pc_branch_nao_resolvido{-1};
     EstadoThread             estado{EstadoThread::LIBERADA};
     CDB                      cdb;
     ReservationStations      rs;
     UnidadesFuncionais       uf;
     std::vector<int>         buffer_WB;
+    std::vector<int>         buffer_WB_pendente;   // ← novo
     std::vector<int>         instrucoes_troca;
     std::vector<Instrucao>   rob;
     std::vector<LinhaTabela> tabela_de_instrucoes;

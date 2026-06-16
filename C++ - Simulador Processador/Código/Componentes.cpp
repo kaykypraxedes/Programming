@@ -9,38 +9,73 @@ Registrador::Registrador(std::string registrador_em_string){
 }
 
 // Getters
-char                     Registrador::getTipo()          const { return tipo;}
-int                      Registrador::getId()            const { return id;}
-bool                     Registrador::getBusy()          const { return busy;}
-// getRSatual: retorna o produtor mais recente (back da fila).
+char                     Registrador::getTipo()             const { return tipo;}
+int                      Registrador::getId()               const { return id;}
+bool                     Registrador::getBusy()             const { return busy;}
+// getRSatual: retorna o produtor pendente mais recente (último RS_alocadas com tempo_fim == -1).
 // É este que novas instruções devem aguardar em caso de WAW.
-std::string              Registrador::getRSatual()       const {
-    return fila_produtores.empty() ? "" : fila_produtores.back();
+std::string Registrador::getRSatual() const {
+    for (int i = (int)RS_alocadas.size() - 1; i >= 0; i--) {
+        if (tempo_fim[i] == -1) return RS_alocadas[i];
+    }
+    return "";
 }
-bool                     Registrador::temProdutorPendente() const { return !fila_produtores.empty(); }
-std::vector<int>         Registrador::getTempoAlocacao() const { return tempo_alocacao;}
-std::vector<std::string> Registrador::getRSalocadas()    const { return RS_alocadas;}
+bool Registrador::temProdutorPendente() const {
+    for (int i = 0; i < (int)tempo_fim.size(); i++)
+        if (tempo_fim[i] == -1) return true;
+    return false;
+}
+// getCicloInicioRS: retorna o ciclo_inicio do produtor pendente mais recente com esse nome.
+// Usado pelo addIssue para montar o par (rs_id, ciclo_inicio) de Qj/Qk.
+int Registrador::getCicloInicioRS(const std::string& rs_id) const {
+    for (int i = (int)RS_alocadas.size() - 1; i >= 0; i--) {
+        if (RS_alocadas[i] == rs_id && tempo_fim[i] == -1)
+            return tempo_inicio[i];
+    }
+    return -1;
+}
+// para evitar ambiguidade quando o mesmo RS foi reutilizado múltiplas vezes.
+bool Registrador::dependenciaResolvida(const std::string& rs_id, int ciclo_inicio) const {
+    for (int i = 0; i < (int)RS_alocadas.size(); i++) {
+        if (RS_alocadas[i] == rs_id && tempo_inicio[i] == ciclo_inicio) {
+            return tempo_fim[i] != -1;
+        }
+    }
+    return false; // não encontrado — trata como não resolvido
+}
+std::vector<int> Registrador::getTempoAlocacao() const {
+    std::vector<int> resultado;
+    resultado.reserve(tempo_inicio.size() * 2);
+    for (size_t i = 0; i < tempo_inicio.size(); i++) {
+        resultado.push_back(tempo_inicio[i]);
+        resultado.push_back(tempo_fim[i]);
+    }
+    return resultado;
+}
+std::vector<std::string> Registrador::getRSalocadas()       const { return RS_alocadas;}
 
 // Mutadores
 void Registrador::trocaBusy() { busy = !busy; }
 
-// alocarRS: empurra o novo produtor no back da fila.
-// Múltiplos produtores pendentes (WAW) ficam enfileirados.
+// alocarRS: registra o novo produtor. tempo_fim começa em -1 (pendente).
+// Múltiplos produtores pendentes (WAW) ficam na sequência de RS_alocadas.
 void Registrador::alocarRS(std::string& rs, int inicio) {
     busy     = true;
-    fila_produtores.push_back(rs); // novo produtor entra no back
     RS_alocadas.push_back(rs);
-    tempo_alocacao.push_back(inicio);
+    tempo_inicio.push_back(inicio);
+    tempo_fim.push_back(-1);     // -1 = ainda pendente
 }
 
-// desalocarRS: remove apenas o produtor mais antigo (front).
-// Se ainda há outros produtores na fila, busy permanece true e
-// getRSatual() continua retornando o próximo produtor pendente.
-void Registrador::desalocarRS(int fim) {
-    if (!fila_produtores.empty())
-        fila_produtores.pop_front(); // o produtor mais antigo terminou
-    busy = !fila_produtores.empty();
-    tempo_alocacao.push_back(fim);
+// desalocarRS: usa o par (rs_id, ciclo_inicio) para identificar a entrada exata,
+// evitando ambiguidade quando o mesmo RS foi reutilizado múltiplas vezes (WAW).
+void Registrador::desalocarRS(const std::string& rs_id, int ciclo_inicio, int ciclo_fim) {
+    for (int i = 0; i < (int)RS_alocadas.size(); i++) {
+        if (RS_alocadas[i] == rs_id && tempo_inicio[i] == ciclo_inicio) {
+            tempo_fim[i] = ciclo_fim;
+            break;
+        }
+    }
+    busy = temProdutorPendente();
 }
 
 // Privados

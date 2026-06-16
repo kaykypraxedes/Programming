@@ -160,7 +160,7 @@ int main() {
         check("atualizarDependencias retorna false com Qj pendente", !antes);
 
         // load0 termina: CDB.F[2].getRSatual() fica vazio
-        cdb.F[2].desalocarRS(3);
+        cdb.F[2].desalocarRS("load0", 1, 3);
         bool depois = rs.atualizarDependencias(cdb, uf, 4);
         check("atualizarDependencias retorna true após Qj liberado", depois);
         check("fase == EX após Qj liberado", rs.getFaseInstrucao() == FaseInstrucao::EX);
@@ -195,11 +195,17 @@ int main() {
         rs.addIssue(instr, cdb, 1);
         rs.atualizarDependencias(cdb, uf, 2); // inicia EX
 
-        // EX termina (contagem 1→0)
+        // EX termina (contagem 1→0): fase muda para MEM, contagem volta a -1
+        // (aguarda atualizarDependencias iniciar MEM no próximo ciclo)
         bool fim_ex = rs.atualizaContagem(uf, 2);
         check("LOAD: atualizaContagem sinaliza fim do EX", fim_ex);
         check("LOAD: fase == MEM após EX",                 rs.getFaseInstrucao() == FaseInstrucao::MEM);
-        check("LOAD: contagem == 1 (latMEM)",              rs.getContagemRegressiva() == 1);
+        check("LOAD: contagem == -1 (aguarda iniciar MEM)", rs.getContagemRegressiva() == -1);
+
+        // atualizarDependencias inicia MEM (K=R1 livre → sem Qk pendente)
+        bool iniciou_mem = rs.atualizarDependencias(cdb, uf, 3);
+        check("LOAD: atualizarDependencias inicia MEM no ciclo 3", iniciou_mem);
+        check("LOAD: contagem == latMEM == 1 após iniciar MEM", rs.getContagemRegressiva() == 1);
 
         // MEM termina (contagem 1→0)
         bool fim_mem = rs.atualizaContagem(uf, 3);
@@ -229,7 +235,7 @@ int main() {
         check("STORE: contagem == -1 após EX (aguarda dado)", rs.getContagemRegressiva() == -1);
 
         // Libera F6
-        cdb.F[6].desalocarRS(4);
+        cdb.F[6].desalocarRS("float_basico0", 1, 4);
         // atualizarDependencias agora permite iniciar MEM
         bool mem_ok = rs.atualizarDependencias(cdb, uf, 4);
         check("STORE: atualizarDependencias inicia MEM após dado liberado", mem_ok);
@@ -296,6 +302,8 @@ int main() {
     // ────────────────────────────────────────────────────────
     {
         // LOAD chega a WB pelo caminho EX→MEM→WB.
+        // Entre o fim do EX e o início do MEM é necessário chamar
+        // atualizarDependencias() para que a fase MEM seja alocada.
         // Após liberar(), a RS deve estar limpa e pronta para reusar.
         RS rs("load1");
         CDB cdb = makeCDB();
@@ -304,7 +312,8 @@ int main() {
 
         rs.addIssue(instr, cdb, 1);
         rs.atualizarDependencias(cdb, uf, 2); // inicia EX
-        rs.atualizaContagem(uf, 2);           // EX termina → fase MEM
+        rs.atualizaContagem(uf, 2);           // EX termina → fase MEM, contagem=-1
+        rs.atualizarDependencias(cdb, uf, 3); // inicia MEM
         rs.atualizaContagem(uf, 3);           // MEM termina → fase WB
 
         check("LOAD antes de liberar: fase == WB",  rs.getFaseInstrucao() == FaseInstrucao::WB);

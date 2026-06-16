@@ -86,26 +86,33 @@ int main() {
         check("getRSatual() == 'load0'",             r.getRSatual() == "load0");
         check("getRSalocadas()[0] == 'load0'",       r.getRSalocadas().size() == 1
                                                   && r.getRSalocadas()[0] == "load0");
-        // tempos: [3]  (só início; fim ainda não chegou)
-        check("getTempoAlocacao()[0] == 3",          r.getTempoAlocacao().size() == 1
-                                                  && r.getTempoAlocacao()[0] == 3);
+        // getTempoAlocacao() retorna pares {inicio, fim}; fim == -1 enquanto pendente.
+        // Após 1 alocação sem desalocar: [{3, -1}] → size=2
+        check("getTempoAlocacao().size() == 2 (par inicio/fim com fim pendente)",
+              r.getTempoAlocacao().size() == 2);
+        check("getTempoAlocacao()[0] == 3 (inicio)",
+              r.getTempoAlocacao()[0] == 3);
+        check("getTempoAlocacao()[1] == -1 (fim pendente)",
+              r.getTempoAlocacao()[1] == -1);
 
         // Segunda alocação (instrução futura no mesmo registrador)
         std::string rs2 = "load1";
         r.alocarRS(rs2, 7);
         check("2ª alocação: getRSatual() == 'load1'",     r.getRSatual() == "load1");
         check("2ª alocação: getRSalocadas().size() == 2", r.getRSalocadas().size() == 2);
-        check("2ª alocação: getTempoAlocacao().size() == 2", r.getTempoAlocacao().size() == 2);
+        // Dois pares pendentes: [{3,-1},{7,-1}] → size=4
+        check("2ª alocação: getTempoAlocacao().size() == 4 (dois pares pendentes)",
+              r.getTempoAlocacao().size() == 4);
     }
 
     // ────────────────────────────────────────────────────────
-    secao("desalocarRS(fim)");
+    secao("desalocarRS(rs_id, ciclo_inicio, ciclo_fim)");
     // ────────────────────────────────────────────────────────
     {
         Registrador r("R2");
         std::string rs = "int_basico0";
-        r.alocarRS(rs, 5);   // início = 5
-        r.desalocarRS(8);    // fim    = 8
+        r.alocarRS(rs, 5);              // início = 5
+        r.desalocarRS("int_basico0", 5, 8); // fim = 8
 
         check("busy == false após desalocarRS",       r.getBusy() == false);
         check("getRSatual() vazio após desalocar",    r.getRSatual().empty());
@@ -128,9 +135,9 @@ int main() {
         std::string rs_a = "load1";
         std::string rs_b = "load2";
         f.alocarRS(rs_a, 2);
-        f.desalocarRS(4);
+        f.desalocarRS("load1", 2, 4);
         f.alocarRS(rs_b, 10);
-        f.desalocarRS(12);
+        f.desalocarRS("load2", 10, 12);
 
         check("busy == false ao final",    f.getBusy() == false);
         check("2 RS alocadas no histórico", f.getRSalocadas().size() == 2);

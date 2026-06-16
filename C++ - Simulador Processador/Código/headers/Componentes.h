@@ -3,9 +3,7 @@
 #define COMPONENTES_H
 #include <string>
 #include <vector>
-#include <deque>
 #include <cctype>
-
 
 // Classe
 class Registrador {
@@ -20,21 +18,20 @@ class Registrador {
         void                     trocaBusy();
         std::vector<int>         getTempoAlocacao() const;
         std::vector<std::string> getRSalocadas() const;
-        std::string              getRSatual() const;  // retorna o produtor mais recente (back da fila)
-        bool                     temProdutorPendente() const; // true se fila não vazia
+        std::string              getRSatual() const;       // retorna o produtor mais recente (último de RS_alocadas com tempo_fim == -1)
+        bool                     temProdutorPendente() const;
+        bool                     dependenciaResolvida(const std::string& rs_id, int ciclo_inicio) const;
+        int                      getCicloInicioRS(const std::string& rs_id) const; // ciclo_inicio do produtor pendente mais recente com esse nome
         // Métodos públicos
         void                     alocarRS(std::string&, int);
-        void                     desalocarRS(int);
+        void                     desalocarRS(const std::string&, int, int);
     private:
         // Atributos
         char                     tipo{'Z'};
         int                      id;
         bool                     busy{false};
-        // WAW fix: fila de produtores pendentes.
-        // front = produtor mais antigo (que termina primeiro),
-        // back  = produtor mais recente (que novas dependências devem aguardar).
-        std::deque<std::string>  fila_produtores;
-        std::vector<int>         tempo_alocacao;
+        std::vector<int>         tempo_inicio;
+        std::vector<int>         tempo_fim;     // Pares (inicio[n] - fim[n]); fim == -1 enquanto pendente
         std::vector<std::string> RS_alocadas;
         // Métodos privados
         char                     identificaTipo(std::string&);
@@ -60,5 +57,6 @@ struct UnidadesFuncionais {
     std::vector<UF>          ula_float_basico;
     std::vector<UF>          ula_float_mult_div;
     int                      wr{1};
+    int                      commit{1};
 };
 #endif

@@ -13,17 +13,15 @@ int                      RS::getPosicaoUF()          const { return posicao_UF; 
 Instrucao                RS::getInstrucaoAtual()     const { return instrucao_atual; }
 FaseInstrucao            RS::getFaseInstrucao()      const { return fase; }
 std::string              RS::getId()                 const { return id; }
-std::string              RS::getQj()                 const { return Qj; }
-std::string              RS::getQk()                 const { return Qk; }
+std::string              RS::getQj()                 const { return Qj.first; }
+std::string              RS::getQk()                 const { return Qk.first; }
 std::vector<int>         RS::getTempos()             const { return tempos_alocacao; }
 std::vector<std::string> RS::getInstrucoes()         const { return instrucoes_alocacao; }
 
 // ─── addIssue ─────────────────────────────────────────────────────────────────
 // Lê Qj/Qk do CDB ANTES de marcar o destino para não se auto-bloquear.
-// Se J ou K coincide com o destino (WAR), o operando lido é o valor ATUAL
-// do registrador (disponível), e o destino é reservado normalmente no CDB.
-// Não há motivo para adiar a reserva do destino — dependentes emitidos depois
-// precisam ver essa reserva para se bloquear corretamente.
+// Qj/Qk são agora std::pair<std::string,int> = {rs_id, ciclo_inicio_no_cdb}.
+// Par {"", -1} significa operando disponível (sem dependência pendente).
 bool RS::addIssue(Instrucao& instrucao, CDB& cdb, int ciclo) {
     if (busy) return false;
     busy            = true;
@@ -31,7 +29,7 @@ bool RS::addIssue(Instrucao& instrucao, CDB& cdb, int ciclo) {
     fase            = FaseInstrucao::ISSUE;
     contagem_regressiva_alocacao = -1;
     posicao_UF                   = -1;
-    Qj = Qk = "";
+    Qj = Qk = {"", -1};
     Vj = Vk = Registrador{};
     destino_pendente_no_cdb = false;
     instrucoes_alocacao.push_back(instrucao.getInstrucaoString());
@@ -41,8 +39,6 @@ bool RS::addIssue(Instrucao& instrucao, CDB& cdb, int ciclo) {
     bool dest_valido = (dest.getTipo() != 'Z' && dest.getId() >= 0);
 
     // Lê dependências ANTES de marcar o destino para não se auto-bloquear (WAR).
-    // Se J ou K é o mesmo registrador que o destino, o valor atual está disponível
-    // (esta instrução vai sobrescrevê-lo, mas lê o valor antigo).
     Registrador regJ = instrucao.getJ();
     Registrador regK = instrucao.getK();
 
@@ -51,30 +47,31 @@ bool RS::addIssue(Instrucao& instrucao, CDB& cdb, int ciclo) {
     };
 
     if (regJ.getTipo() != 'Z' && regJ.getId() >= 0) {
-        if (dest_valido && mesmo_reg(regJ, dest)) {
-            Vj = regJ; // WAR: lê valor atual, que está disponível
+        Registrador& regCDBj = (regJ.getTipo() == 'F')
+            ? cdb.F[regJ.getId()] : cdb.R[regJ.getId()];
+        std::string tag = regCDBj.getRSatual();
+        if (tag.empty()) {
+            Vj = regJ; // operando disponível (inclui WAR sem produtor pendente)
+        } else if (dest_valido && mesmo_reg(regJ, dest) && tag == id) {
+            Vj = regJ; // WAR puro: o único produtor pendente é esta própria instrução
         } else {
-            std::string tag = (regJ.getTipo() == 'F')
-                ? cdb.F[regJ.getId()].getRSatual()
-                : cdb.R[regJ.getId()].getRSatual();
-            if (tag.empty()) Vj = regJ;
-            else             Qj = tag;
+            Qj = {tag, regCDBj.getCicloInicioRS(tag)};
         }
     }
     if (regK.getTipo() != 'Z' && regK.getId() >= 0) {
-        if (dest_valido && mesmo_reg(regK, dest)) {
-            Vk = regK; // WAR: lê valor atual, que está disponível
+        Registrador& regCDBk = (regK.getTipo() == 'F')
+            ? cdb.F[regK.getId()] : cdb.R[regK.getId()];
+        std::string tag = regCDBk.getRSatual();
+        if (tag.empty()) {
+            Vk = regK;
+        } else if (dest_valido && mesmo_reg(regK, dest) && tag == id) {
+            Vk = regK; // WAR puro
         } else {
-            std::string tag = (regK.getTipo() == 'F')
-                ? cdb.F[regK.getId()].getRSatual()
-                : cdb.R[regK.getId()].getRSatual();
-            if (tag.empty()) Vk = regK;
-            else             Qk = tag;
+            Qk = {tag, regCDBk.getCicloInicioRS(tag)};
         }
     }
 
     // Marca o destino no CDB agora, sempre.
-    // Dependentes emitidos depois precisam ver esta reserva para se bloquear.
     if (dest_valido) {
         if      (dest.getTipo() == 'F') cdb.F[dest.getId()].alocarRS(id, ciclo);
         else if (dest.getTipo() == 'R') cdb.R[dest.getId()].alocarRS(id, ciclo);
@@ -83,61 +80,60 @@ bool RS::addIssue(Instrucao& instrucao, CDB& cdb, int ciclo) {
 }
 
 // ─── atualizarDependencias ────────────────────────────────────────────────────
-// Resolve Qj/Qk consultando o CDB. Quando prontos, aloca UF e inicia contagem.
-// Retorna true apenas no ciclo em que a instrução COMEÇA a executar.
+// Resolve Qj/Qk consultando o CDB via dependenciaResolvida(rs_id, ciclo_inicio).
+// Quando prontos, aloca UF e inicia contagem.
 bool RS::atualizarDependencias(CDB& cdb, UnidadesFuncionais& uf, int ciclo) {
     if (!busy || contagem_regressiva_alocacao != -1) return false;
 
     Registrador regJ = instrucao_atual.getJ();
     Registrador regK = instrucao_atual.getK();
 
-    // Resolver Vj / Qj (só se ainda não resolvido)
-    if (Vj.getTipo() == 'Z' && !Qj.empty()) {
-        // Qj estava pendente — verifica se já foi produzido
-        std::string tag = (regJ.getTipo() == 'F')
-            ? cdb.F[regJ.getId()].getRSatual()
-            : cdb.R[regJ.getId()].getRSatual();
-        if (tag.empty()) { Vj = regJ; Qj = ""; }
+    // Resolver Vj / Qj
+    if (Vj.getTipo() == 'Z' && !Qj.first.empty()) {
+        Registrador& regCDB = (regJ.getTipo() == 'F')
+            ? cdb.F[regJ.getId()] : cdb.R[regJ.getId()];
+        if (regCDB.dependenciaResolvida(Qj.first, Qj.second)) {
+            Vj = regJ;
+            Qj = {"", -1};
+        }
     }
-    // Resolver Vk / Qk (só se ainda não resolvido)
-    if (Vk.getTipo() == 'Z' && !Qk.empty()) {
-        std::string tag = (regK.getTipo() == 'F')
-            ? cdb.F[regK.getId()].getRSatual()
-            : cdb.R[regK.getId()].getRSatual();
-        if (tag.empty()) { Vk = regK; Qk = ""; }
+    // Resolver Vk / Qk
+    if (Vk.getTipo() == 'Z' && !Qk.first.empty()) {
+        Registrador& regCDB = (regK.getTipo() == 'F')
+            ? cdb.F[regK.getId()] : cdb.R[regK.getId()];
+        if (regCDB.dependenciaResolvida(Qk.first, Qk.second)) {
+            Vk = regK;
+            Qk = {"", -1};
+        }
     }
 
     TipoInstrucao tipo = instrucao_atual.getTipoInstrucao();
     bool load_store = (tipo == TipoInstrucao::LOAD || tipo == TipoInstrucao::STORE);
 
     if (load_store) {
-        if (fase == FaseInstrucao::ISSUE && Qk.empty()) {
+        if (fase == FaseInstrucao::ISSUE && Qk.first.empty()) {
             posicao_UF = procuraUFlivre(uf, ciclo, FaseInstrucao::EX);
             if (posicao_UF == -1) return false;
             contagem_regressiva_alocacao = instrucao_atual.getLatenciaEX();
             fase = FaseInstrucao::EX;
             return true;
         }
-        // Após atualizaContagem, fase já foi avançada para MEM (EX terminou)
-        // Aqui alocamos a UF de memória e iniciamos a contagem de MEM
         if (fase == FaseInstrucao::MEM && contagem_regressiva_alocacao == -1
-            && ((tipo == TipoInstrucao::STORE && Qj.empty()) || tipo == TipoInstrucao::LOAD)) {
+            && ((tipo == TipoInstrucao::STORE && Qj.first.empty()) || tipo == TipoInstrucao::LOAD)) {
             posicao_UF = procuraUFlivre(uf, ciclo, FaseInstrucao::MEM);
             if (posicao_UF == -1) return false;
             contagem_regressiva_alocacao = instrucao_atual.getLatenciaMEM();
-            // fase já é MEM — não precisa mudar
             return true;
         }
         return false;
     }
 
     // Instrução comum: precisa de Qj e Qk resolvidos
-    if (Qj.empty() && Qk.empty()) {
+    if (Qj.first.empty() && Qk.first.empty()) {
         posicao_UF = procuraUFlivre(uf, ciclo, FaseInstrucao::EX);
         if (posicao_UF == -1) return false;
         contagem_regressiva_alocacao = instrucao_atual.getLatenciaEX();
         fase = FaseInstrucao::EX;
-        // Marcação atrasada do destino (caso WAR detectado no addIssue)
         if (destino_pendente_no_cdb) {
             Registrador dest = instrucao_atual.getRegDestino();
             if (dest.getTipo() == 'F') cdb.F[dest.getId()].alocarRS(const_cast<std::string&>(id), ciclo);
@@ -185,12 +181,11 @@ bool RS::atualizaContagem(UnidadesFuncionais& uf, int ciclo) {
 }
 
 // ─── resolverDependencia ──────────────────────────────────────────────────────
-// Broadcast do CDB: se esta RS está esperando por rs_id, captura o valor agora.
-// Isso evita que uma re-escrita posterior do mesmo registrador (WAW) impeça
-// a RS de iniciar — ela guarda o valor no momento em que foi produzido.
+// Broadcast do CDB: se esta RS está esperando por rs_id com aquele ciclo_inicio,
+// captura o valor agora. O par {rs_id, ciclo_inicio} identifica unicamente o produtor.
 void RS::resolverDependencia(const std::string& rs_id, const Registrador& valor) {
-    if (Qj == rs_id) { Vj = valor; Qj = ""; }
-    if (Qk == rs_id) { Vk = valor; Qk = ""; }
+    if (Qj.first == rs_id) { Vj = valor; Qj = {"", -1}; }
+    if (Qk.first == rs_id) { Vk = valor; Qk = {"", -1}; }
 }
 
 // ─── liberar ──────────────────────────────────────────────────────────────────
@@ -199,7 +194,7 @@ void RS::liberar(int ciclo) {
     busy                         = false;
     contagem_regressiva_alocacao = -1;
     posicao_UF                   = -1;
-    Qj = Qk                      = "";
+    Qj = Qk                      = {"", -1};
     Vj = Vk                      = Registrador{};
     fase                         = FaseInstrucao::ISSUE;
 }

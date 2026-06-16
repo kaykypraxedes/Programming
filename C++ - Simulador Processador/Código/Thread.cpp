@@ -15,7 +15,7 @@ void Thread::inicializarComponentes(std::vector<int> num_rs, std::vector<int> nu
     }
     // Inicia os Reservation Stations
     std::vector<int> aux;
-    if(!num_rs.empty()) aux = num_rs;
+    if(num_rs.size() >= 6) aux = num_rs;
     else aux = {5,5,5,4,3,2};
     for(int i{}; i < aux[0]; i++) rs.load.push_back(RS("load" + std::to_string(i)));
     for(int i{}; i < aux[1]; i++) rs.store.push_back(RS("store" + std::to_string(i)));
@@ -24,14 +24,15 @@ void Thread::inicializarComponentes(std::vector<int> num_rs, std::vector<int> nu
     for(int i{}; i < aux[4]; i++) rs.float_basico.push_back(RS("float_basico" + std::to_string(i)));
     for(int i{}; i < aux[5]; i++) rs.float_mult_div.push_back(RS("float_mult_div" + std::to_string(i)));
     // Inicia as Unidades Funcionais (num_ufs por tipo)
-    if(!num_ufs.empty()) aux = num_ufs;
-    else aux = {1,1,1,1,1,2};
+    if(num_ufs.size() >= 7) aux = num_ufs; // Sempre é passado, pelo menos o uf.commit
+    else aux = {1,1,1,1,1,2, num_ufs.empty() ? 1 : num_ufs[0]};
     for(int i{}; i < aux[0]; i++) uf.acessar_memoria.push_back(UF{false, 0});
     for(int i{}; i < aux[1]; i++) uf.ula_int_basico.push_back(UF{false, 0});
     for(int i{}; i < aux[2]; i++) uf.ula_int_mult_div.push_back(UF{false, 0});
     for(int i{}; i < aux[3]; i++) uf.ula_float_basico.push_back(UF{false, 0});
     for(int i{}; i < aux[4]; i++) uf.ula_float_mult_div.push_back(UF{false, 0});
-    uf.wr = aux[5];
+    uf.wr     = aux[5];
+    uf.commit = aux[6];
     // Inicia o ROB (se for Tomasulo com especulação)
     if(tem_rob) capacidade_rob = 30;
 }
@@ -83,20 +84,30 @@ bool Thread::executarExMem(int ciclo) {
     if((num_instrucoes_commitadas == tabela_de_instrucoes.size()) || // Tem ROB
        (!tem_rob && (num_instrucoes_finalizadas == tabela_de_instrucoes.size()))) // Não tem ROB
        return true;
-    if(tem_rob) executarCommit(ciclo);
+    // Commit foi movido para executarCommitPublico(), chamado após executarWr()
+    // no Processador, para que ciclo_WR já esteja preenchido.
     if (estado == EstadoThread::ESPERA)
         estado = EstadoThread::LIBERADA;
     if(num_instrucoes_finalizadas != tabela_de_instrucoes.size()) executaExMemTodos(ciclo);
     return false;
 }
 
+void Thread::executarCommitPublico(int ciclo) {
+    if(tem_rob) executarCommit(ciclo);
+}
+
 // ─── executarWr ───────────────────────────────────────────────────────────────
 void Thread::executarWr(int ciclo) {
+    // Flush dos pendentes do ciclo anterior → buffer principal → consome (WR)
+    for (int pc : buffer_WB_pendente)
+        buffer_WB.push_back(pc);
+    buffer_WB_pendente.clear();
     consumirBufferWB(ciclo);
+    // Detecta fins de fase neste ciclo → vai para buffer_WB_pendente
     executaWrTodos(ciclo);
-    // Verifica branch no buffer para travar a thread sem ROB e previsor de desvios
+    // Verifica branch no buffer pendente para travar a thread sem ROB
     if (!tem_rob) {
-        for (int i : buffer_WB) {
+        for (int i : buffer_WB_pendente) {
             if (tabela_de_instrucoes[i].instrucao.getTipoInstrucao() == TipoInstrucao::BRANCH)
                 estado = EstadoThread::ESPERA;
         }
@@ -127,7 +138,7 @@ bool Thread::executarIssue(int ciclo) {
         default:                          grupo = &rs.int_basico;    break;
     }
 
-    for (RS& r : *grupo) {            // referência, não cópia
+    for (RS& r : *grupo) {
         if (r.addIssue(instrucao, cdb, ciclo)) {
             tabela_de_instrucoes[PC].ciclo_issue = ciclo;
             tabela_de_instrucoes[PC].posicao_PC  = PC;
@@ -145,34 +156,43 @@ bool Thread::executarIssue(int ciclo) {
 // ─── executarCommit ───────────────────────────────────────────────────────────
 void Thread::executarCommit(int ciclo){
     int escritas{};
-    while (!rob.empty() && escritas < uf.wr){
+    while (!rob.empty() && escritas < uf.commit){
         LinhaTabela& linha{tabela_de_instrucoes[ponteiro_commit]};
         TipoInstrucao tipo = linha.instrucao.getTipoInstrucao();
         bool store_com_rob = (tipo == TipoInstrucao::STORE && tem_rob);
         bool pronto = false;
 
         if (store_com_rob) {
-            // STORE com ROB: pronto quando EX terminou (ciclo_EX tem 2 entradas)
-            // e num_instrucoes_finalizadas já passou por este PC (RS liberada)
-            pronto = (linha.ciclo_EX.size() == 2);
+            if (linha.ciclo_MEM.empty()) {
+                // Indica o ciclo que a instrução de STORE foi mandada para o COMMIT (tempo de MEM teórico)
+                linha.ciclo_MEM.push_back(ciclo);
+            }
+            if (linha.ciclo_MEM.size() == 1) { // Verifica se já passou a latência de MEM para executar o commit
+                int fim_mem = linha.ciclo_MEM[0] + linha.instrucao.getLatenciaMEM() - 1;
+                if (ciclo >= fim_mem) {
+                    linha.ciclo_MEM.pop_back(); // regulariza o MEM (--)
+                    pronto = true;
+                }
+            }
         } else if (tipo == TipoInstrucao::BRANCH) {
             // Branch: pronto quando EX terminou
             pronto = (linha.ciclo_EX.size() == 2);
         } else {
-            // Instrução comum: pronta após WR
-            pronto = (linha.ciclo_WR != 0);
+            // Instrução comum: pronta após WR, e o commit deve ser em ciclo posterior ao WR
+            pronto = (linha.ciclo_WR != 0 && linha.ciclo_WR < ciclo);
         }
 
         if (pronto) {
-            // STORE com ROB: a escrita na memória ocorre aqui no commit,
-            // mas não é exibida na coluna MEM (permanece "--").
             linha.ciclo_commit = ciclo;
             num_instrucoes_commitadas++;
             escritas++;
             ponteiro_commit++;
             rob.erase(rob.begin());
+            // Sem previsor: branch resolve no commit, instruções posteriores
+            // só podem fazer commit no ciclo seguinte
+            if (tipo == TipoInstrucao::BRANCH && !(tem_previsor && tem_rob)) break;
         }
-        else break; // Não conseguiu realizar commit
+        else break;
     }
 }
 
@@ -240,53 +260,75 @@ void Thread::executaExMemTodos(int ciclo) {
 // calculado e a instrução fica pronta para commit (que escreve na memória).
 // A fase MEM do STORE sem ROB continua funcionando normalmente.
 void Thread::executaWrTodos(int ciclo) {
-    auto processar = [&](std::vector<RS>& grupo) {
+    // Coleta todos os eventos de fim de fase neste ciclo SEM ainda fechar a
+    // tabela nem inserir no buffer_WB, para depois ordenar por PC e garantir
+    // que instruções mais antigas façam WR primeiro (independente do grupo de RS).
+    struct Evento {
+        int           pc;
+        FaseInstrucao fase_antes;
+        FaseInstrucao fase_depois;
+        TipoInstrucao tipo;
+    };
+    std::vector<Evento> eventos;
+
+    auto coletar = [&](std::vector<RS>& grupo) {
         for (RS& r : grupo) {
             if (!r.getBusy()) continue;
-            // Captura a fase ANTES de atualizaContagem alterá-la
             FaseInstrucao fase_antes = r.getFaseInstrucao();
             if (r.atualizaContagem(uf, ciclo)) {
-                int pc = r.getInstrucaoAtual().getPC();
-                FaseInstrucao fase_depois = r.getFaseInstrucao();
-                TipoInstrucao tipo = r.getInstrucaoAtual().getTipoInstrucao();
-                bool tem_mem = (tipo == TipoInstrucao::LOAD || tipo == TipoInstrucao::STORE);
-                bool store_com_rob = (tipo == TipoInstrucao::STORE && tem_rob);
-
-                if (fase_antes == FaseInstrucao::EX && fase_depois == FaseInstrucao::MEM) {
-                    // EX terminou → fecha ciclo_EX
-                    tabela_de_instrucoes[pc].ciclo_EX.push_back(ciclo);
-
-                    if (store_com_rob) {
-                        // STORE com ROB: não executa MEM antes do commit — a escrita
-                        // na memória ocorre no commit, mas não é exibida na tabela
-                        // (coluna MEM permanece "--"). Libera a RS e a UF de endereço;
-                        // vai para buffer_WB apenas para broadcast/limpeza.
-                        buffer_WB.push_back(pc);
-                    }
-                    // LOAD ou STORE sem ROB: o início real de MEM é registrado em
-                    // executaExMemTodos, no ciclo em que atualizarDependencias
-                    // efetivamente alocar a fase MEM (após Qj/Qk resolvidos).
-                } else if (fase_depois == FaseInstrucao::WB) {
-                    // Fase final concluída
-                    if (tem_mem && !store_com_rob)
-                        tabela_de_instrucoes[pc].ciclo_MEM.push_back(ciclo);
-                    else if (!tem_mem)
-                        tabela_de_instrucoes[pc].ciclo_EX.push_back(ciclo);
-                    buffer_WB.push_back(pc);
-                }
+                eventos.push_back({
+                    r.getInstrucaoAtual().getPC(),
+                    fase_antes,
+                    r.getFaseInstrucao(),
+                    r.getInstrucaoAtual().getTipoInstrucao()
+                });
             }
         }
     };
-    processar(rs.load);
-    processar(rs.store);
-    processar(rs.int_basico);
-    processar(rs.int_mult_div);
-    processar(rs.float_basico);
-    processar(rs.float_mult_div);
+    coletar(rs.load);
+    coletar(rs.store);
+    coletar(rs.int_basico);
+    coletar(rs.int_mult_div);
+    coletar(rs.float_basico);
+    coletar(rs.float_mult_div);
+
+    // Ordena por PC: instrução mais antiga tem prioridade no WR
+    std::sort(eventos.begin(), eventos.end(), [](const Evento& a, const Evento& b) {
+        return a.pc < b.pc;
+    });
+
+    for (const Evento& e : eventos) {
+        int pc             = e.pc;
+        bool tem_mem       = (e.tipo == TipoInstrucao::LOAD || e.tipo == TipoInstrucao::STORE);
+        bool store_com_rob = (e.tipo == TipoInstrucao::STORE && tem_rob);
+
+        if (e.fase_antes == FaseInstrucao::EX && e.fase_depois == FaseInstrucao::MEM) {
+            // EX terminou → fecha ciclo_EX
+            tabela_de_instrucoes[pc].ciclo_EX.push_back(ciclo);
+
+            if (store_com_rob) {
+                buffer_WB_pendente.push_back(pc);
+            }
+            // LOAD ou STORE sem ROB: o início real de MEM é registrado em
+            // executaExMemTodos, no ciclo em que atualizarDependencias
+            // efetivamente alocar a fase MEM (após Qj/Qk resolvidos).
+        } else if (e.fase_depois == FaseInstrucao::WB) {
+            // Fase final concluída
+            if (tem_mem && !store_com_rob)
+                tabela_de_instrucoes[pc].ciclo_MEM.push_back(ciclo);
+            else if (!tem_mem)
+                tabela_de_instrucoes[pc].ciclo_EX.push_back(ciclo);
+            buffer_WB_pendente.push_back(pc);
+        }
+    }
 }
 
 // Mover para executarWr(), chamado após executaWrTodos():
 void Thread::consumirBufferWB(int ciclo) {
+    // Garante que instruções mais antigas (menor PC) façam WR primeiro,
+    // independente da ordem em que entraram no buffer.
+    std::sort(buffer_WB.begin(), buffer_WB.end());
+
     int escritas{};
     while (!buffer_WB.empty() && escritas < uf.wr) {
         int pc = buffer_WB.front();
@@ -296,7 +338,8 @@ void Thread::consumirBufferWB(int ciclo) {
         // STORE com ROB: entra no buffer apenas para liberar a RS; não tem WR nem
         // escrita no CDB (sem registrador destino). O commit registrará o MEM.
         if (store_com_rob) {
-            // Libera a RS do store agora; não registra ciclo_WR
+            // Libera a RS do store agora; não registra ciclo_WR nem consome vaga de WR
+            // (store com ROB não usa o CDB — a escrita na memória ocorre no commit)
             auto liberarPorPC = [&](std::vector<RS>& grupo) {
                 for (RS& r : grupo)
                     if (r.getBusy() && r.getInstrucaoAtual().getPC() == pc)
@@ -305,25 +348,31 @@ void Thread::consumirBufferWB(int ciclo) {
             liberarPorPC(rs.store);
             buffer_WB.erase(buffer_WB.begin());
             num_instrucoes_finalizadas++;
-            escritas++;
+            // escritas não incrementado: store com ROB não ocupa barramento WR
             continue;
         }
 
         if(auxTipo != TipoInstrucao::STORE && auxTipo != TipoInstrucao::BRANCH) tabela_de_instrucoes[pc].ciclo_WR = ciclo;
         Registrador dest = tabela_de_instrucoes[pc].instrucao.getRegDestino();
-        if      (dest.getTipo() == 'F') cdb.F[dest.getId()].desalocarRS(ciclo);
-        else if (dest.getTipo() == 'R') cdb.R[dest.getId()].desalocarRS(ciclo);
         // Broadcast: resolve Qj/Qk das RS dependentes APÓS o WR ser confirmado.
-        // Só aqui o valor está realmente disponível para leitura no próximo ciclo.
+        // Também desaloca o CDB usando o hash (rs_id, ciclo_inicio) para evitar
+        // ambiguidade em caso de WAW com reutilização do mesmo RS.
         {
-            std::string rs_prod = tabela_de_instrucoes[pc].instrucao.getInstrucaoString();
-            // Identifica a RS que produziu (está em WB com mesmo PC)
             auto broadcast = [&](std::vector<RS>& grupo) {
                 for (RS& r : grupo)
                     if (r.getBusy() && r.getFaseInstrucao() == FaseInstrucao::WB
                         && r.getInstrucaoAtual().getPC() == pc
                         && dest.getTipo() != 'Z' && dest.getId() >= 0) {
                         std::string rs_id = r.getId();
+                        // Desaloca o CDB com hash exato: (rs_id, ciclo_inicio)
+                        int ciclo_inicio = -1;
+                        if (dest.getTipo() == 'F') {
+                            ciclo_inicio = cdb.F[dest.getId()].getCicloInicioRS(rs_id);
+                            cdb.F[dest.getId()].desalocarRS(rs_id, ciclo_inicio, ciclo);
+                        } else if (dest.getTipo() == 'R') {
+                            ciclo_inicio = cdb.R[dest.getId()].getCicloInicioRS(rs_id);
+                            cdb.R[dest.getId()].desalocarRS(rs_id, ciclo_inicio, ciclo);
+                        }
                         auto bcst = [&](std::vector<RS>& grp) {
                             for (RS& dep : grp)
                                 if (dep.getBusy()) dep.resolverDependencia(rs_id, dest);
@@ -339,7 +388,8 @@ void Thread::consumirBufferWB(int ciclo) {
         }
         buffer_WB.erase(buffer_WB.begin());
         num_instrucoes_finalizadas++;
-        escritas++;
+        // BRANCH não usa o CDB (sem registrador destino), então não consome vaga de WR
+        if(auxTipo != TipoInstrucao::BRANCH) escritas++;
         TipoInstrucao t{tabela_de_instrucoes[pc].instrucao.getTipoInstrucao()};
         // FIX: para instruções sem destino (STORE, BRANCH), libera pelo PC
         auto liberarPorPC = [&](std::vector<RS>& grupo) {

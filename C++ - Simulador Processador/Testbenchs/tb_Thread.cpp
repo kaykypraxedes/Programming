@@ -19,6 +19,13 @@ static void secao(const std::string& nome) {
     std::cout << "\n══ " << nome << " ══\n";
 }
 
+// num_ufs com 7 elementos: {acessar_mem, ula_int_basico, ula_int_mult_div,
+//                            ula_float_basico, ula_float_mult_div, wr, commit}
+// O Processador sempre acrescenta o 7º elemento antes de criar a Thread;
+// nos testbenches precisamos fornecê-lo explicitamente.
+static const std::vector<int> NUM_RS_PADRAO  = {5,5,5,4,3,2};
+static const std::vector<int> NUM_UFS_PADRAO = {1,1,1,1,1,2,1};
+
 int main() {
 
     // ────────────────────────────────────────────────────────
@@ -26,7 +33,7 @@ int main() {
     // ────────────────────────────────────────────────────────
     {
         std::vector<std::string> prog = {"ADD R1, R2, R3", "SUB R4, R1, R5"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
 
         check("getPC() == 0",                             t.getPC() == 0);
         check("getNumStalls() == 0",                      t.getNumStalls() == 0);
@@ -60,7 +67,7 @@ int main() {
     {
         std::vector<std::string> prog = {"ADD R1, R2, R3"};
         std::vector<int> troca = {0};
-        Thread t(prog, false, troca);
+        Thread t(troca, prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
         check("construtor grossa: getPC() == 0",      t.getPC() == 0);
         check("construtor grossa: tabela.size() == 1", t.getTabela().size() == 1);
     }
@@ -70,7 +77,7 @@ int main() {
     // ────────────────────────────────────────────────────────
     {
         std::vector<std::string> prog = {"L.D F2, 0(R1)"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
         // Latência padrão: EX=1, MEM=1
         check("antes: latEX == 1",  t.getTabela()[0].instrucao.getLatenciaEX()  == 1);
         check("antes: latMEM == 1", t.getTabela()[0].instrucao.getLatenciaMEM() == 1);
@@ -87,7 +94,7 @@ int main() {
     // ────────────────────────────────────────────────────────
     {
         std::vector<std::string> prog = {"ADD R3, R1, R2", "SUB R5, R3, R4"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
 
         // Ciclo 1: ADD emitido
         bool ok1 = t.executarIssue(1);
@@ -108,18 +115,25 @@ int main() {
     }
 
     // ────────────────────────────────────────────────────────
-    secao("executarIssue() — BRANCH bloqueia thread (sem ROB)");
+    secao("executarIssue() — BRANCH (sem ROB): thread NÃO fica BLOQUEADA");
     // ────────────────────────────────────────────────────────
     {
+        // No design atual, o bloqueio de despacho pós-branch é responsabilidade
+        // do Processador (que para de chamar executarIssue dessa thread após um
+        // BRANCH). A Thread em si não muda para BLOQUEADA ao emitir um BRANCH:
+        // apenas armazena pc_branch_nao_resolvido para impedir que instruções
+        // posteriores iniciem EX antes do branch ser resolvido.
         std::vector<std::string> prog = {"BNEZ R1, foo", "ADD R2, R3, R4"};
-        Thread t(prog, false); // sem ROB
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO); // sem ROB
 
-        t.executarIssue(1); // emite BNEZ → estado = BLOQUEADA
-        check("estado == BLOQUEADA após BNEZ",     t.getEstadoThread() == EstadoThread::BLOQUEADA);
+        t.executarIssue(1); // emite BNEZ
+        check("estado ainda LIBERADA após BNEZ (controle de despacho é do Processador)",
+              t.getEstadoThread() == EstadoThread::LIBERADA);
+        check("PC avança para 1 após issue do BNEZ", t.getPC() == 1);
 
-        bool bloqueado = t.executarIssue(2);
-        check("executarIssue retorna false quando BLOQUEADA", !bloqueado);
-        check("PC não avança enquanto BLOQUEADA",              t.getPC() == 1);
+        // A Thread permitiria emitir ADD (o Processador é quem impede isso fora),
+        // mas após executarExMem/Wr o branch resolver, o estado fica ESPERA e
+        // depois LIBERADA — testado na seção "ESPERA" abaixo.
     }
 
     // ────────────────────────────────────────────────────────
@@ -131,7 +145,7 @@ int main() {
             "L.D F0, 0(R0)", "L.D F1, 0(R1)", "L.D F2, 0(R2)",
             "L.D F3, 0(R3)", "L.D F4, 0(R4)", "L.D F5, 0(R5)" // 6ª não cabe
         };
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
         for (int c = 1; c <= 5; c++) t.executarIssue(c);
         check("PC == 5 após 5 LOADs",   t.getPC() == 5);
         bool cheio = t.executarIssue(6);
@@ -147,7 +161,7 @@ int main() {
         // Mas tabela nunca fica com num_instrucoes_finalizadas = 0 por padrão,
         // então usamos um programa de 1 instrução e executamos até o fim
         std::vector<std::string> prog = {"ADD R1, R2, R3"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
         // Nenhuma instrução finalizada ainda → retorna false
         bool ret = t.executarExMem(1);
         check("executarExMem retorna false com instruções pendentes", !ret);
@@ -162,7 +176,7 @@ int main() {
         //   ciclo 2: atualizarDependencias → inicia EX; atualizaContagem → EX termina, WB
         //   ciclo 3: consumirBufferWB → ciclo_WR=3, RS liberada
         std::vector<std::string> prog = {"ADD R3, R1, R2"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
 
         t.executarIssue(1);
         check("ciclo 1: issue registrado", t.getTabela()[0].ciclo_issue == 1);
@@ -192,7 +206,7 @@ int main() {
         // ciclo 3: inicia MEM; MEM termina (contagem 1) → WB
         // ciclo 4: consumirBufferWB → ciclo_WR=4
         std::vector<std::string> prog = {"L.D F2, 0(R1)"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
 
         t.executarIssue(1);
         check("LOAD: issue == 1",           t.getTabela()[0].ciclo_issue == 1);
@@ -223,14 +237,15 @@ int main() {
     // ────────────────────────────────────────────────────────
     {
         // BNEZ latEX=1
-        // ciclo 1: issue → BLOQUEADA
+        // ciclo 1: issue → estado LIBERADA (não BLOQUEADA)
         // ciclo 2: EX termina → entra no buffer_WB → estado = ESPERA
         // ciclo 3: executarExMem percebe ESPERA → vira LIBERADA
         std::vector<std::string> prog = {"BNEZ R1, foo", "ADD R2, R3, R4"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
 
         t.executarIssue(1);
-        check("após issue BNEZ: BLOQUEADA", t.getEstadoThread() == EstadoThread::BLOQUEADA);
+        check("após issue BNEZ: estado LIBERADA (bloqueio é responsabilidade do Processador)",
+              t.getEstadoThread() == EstadoThread::LIBERADA);
 
         t.executarExMem(2); t.executarWr(2);
         check("após WR do BNEZ: ESPERA",    t.getEstadoThread() == EstadoThread::ESPERA);
@@ -258,7 +273,7 @@ int main() {
         //   ciclo 4: SUB: atualizarDependencias vê CDB livre → EX começa e termina
         //   ciclo 5: SUB: WR
         std::vector<std::string> prog = {"ADD R3, R1, R2", "SUB R5, R3, R4"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
 
         t.executarIssue(1);                         // issue ADD
         t.executarIssue(2);                         // issue SUB (Qj pendente)
@@ -291,7 +306,7 @@ int main() {
         // Condição de parada do simulador: retorna true quando
         // num_instrucoes_finalizadas == tabela.size()
         std::vector<std::string> prog = {"ADD R1, R2, R3"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
 
         // Antes de qualquer execução: false
         check("antes: false com instrução pendente", !t.executarExMem(1));
@@ -324,7 +339,7 @@ int main() {
         //   ciclo 5: EX termina → WB buffer  (ciclo_EX = [2, 5])
         //   ciclo 6: WR                       (ciclo_WR = 6)
         std::vector<std::string> prog = {"MUL R3, R1, R2"};
-        Thread t(prog, false);
+        Thread t(prog, false, NUM_RS_PADRAO, NUM_UFS_PADRAO);
 
         t.executarIssue(1);
         for (int c = 2; c <= 6; c++) {

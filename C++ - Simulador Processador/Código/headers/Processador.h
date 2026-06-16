@@ -20,7 +20,7 @@ enum class ModeloMultithreading {
 
 // Structs
 struct LinhaCiclos{
-    std::string                  thrad;
+    std::string                  thread;
     Instrucao                    instrucao;
 };
 

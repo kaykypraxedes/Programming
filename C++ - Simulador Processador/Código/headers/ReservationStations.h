@@ -3,6 +3,7 @@
 #define RESERVATION_STATIONS_H
 #include <string>
 #include <vector>
+#include <utility>
 #include "Instrucao.h"
 #include "Componentes.h"
 
@@ -30,17 +31,18 @@ class RS {
         void                     resolverDependencia(const std::string& rs_id, const Registrador& valor);
     private:
         // Atributos
-        bool                     busy{false};
-        int                      contagem_regressiva_alocacao{-1};
-        int                      posicao_UF{-1};
-        Instrucao                instrucao_atual;
-        FaseInstrucao            fase;
-        std::string              id;                  // Nome do RS ("load1", "addInt3", etc.)
-        std::string              Qj;
-        std::string              Qk;
-        Registrador              Vj;
-        Registrador              Vk;
-        bool                     destino_pendente_no_cdb{false}; // WAR: alocarRS adiado para início do EX
+        bool                          busy{false};
+        int                           contagem_regressiva_alocacao{-1};
+        int                           posicao_UF{-1};
+        Instrucao                     instrucao_atual;
+        FaseInstrucao                 fase;
+        std::string                   id;                  // Nome do RS ("load1", "addInt3", etc.)
+        // Qj/Qk: {rs_id, ciclo_inicio} — par vazio {"", -1} significa operando disponível
+        std::pair<std::string, int>   Qj{"", -1};
+        std::pair<std::string, int>   Qk{"", -1};
+        Registrador                   Vj;
+        Registrador                   Vk;
+        bool                          destino_pendente_no_cdb{false};
         std::vector<int>         tempos_alocacao;     // De 2 em 2, início da alocação e fim da alocação
         std::vector<std::string> instrucoes_alocacao; // De 1 em 1, instruções alocadas na RS
         // Métodos privados
