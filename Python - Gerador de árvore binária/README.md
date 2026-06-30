@@ -89,10 +89,10 @@ Remove a chave `k` da árvore. Abrange todos os casos da literatura:
 #### `findParent(current, child)`
 Busca recursivamente o nó pai de `child` a partir de `current`.
 
-#### `passKey(node, sibling, parent, index, pm)**
+#### `passKey(node, sibling, parent, index, pm)`
 Transfere uma chave do `parent` para `node`, pegando uma chave compensatória de `sibling` (empréstimo entre irmãos).
 
-#### `merge(node, sibling, parent, index, pm)**
+#### `merge(node, sibling, parent, index, pm)`
 Funde dois nós irmãos quando ambos estão no número mínimo de chaves. Se o pai também não tiver chaves extras, a fusão pode cascatear recursivamente para cima (envolvendo o avô).
 
 ---
@@ -127,14 +127,6 @@ A função `main()` executa uma bateria de testes manuais que cobrem todos os ca
 1. **Inserções** — 20 chaves inseridas, alternando entre nós com espaço e nós cheios (disparando splits)
 2. **Remoções** — 13 chaves removidas, cobrindo os casos 1a, 1b, 1c, 2a, 2b e remoção recursiva
 3. **Pesquisas** — busca de chave existente (28) e inexistente (51)
-
-Para executar:
-
-```bash
-python "B-Tree.py"
-```
-
-O output esperado está em `output.txt` para referência e comparação.
 
 ---
 
